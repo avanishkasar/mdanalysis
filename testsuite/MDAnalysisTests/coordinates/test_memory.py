@@ -412,3 +412,48 @@ class TestMemoryReaderModifications(object):
     def test_non_numpy_arr(self, attr):
         with pytest.raises(TypeError):
             mr = MemoryReader(np.zeros((10, 30, 3)), **{attr: "not an array"})
+
+
+class TestMemoryReaderTransformedTime(object):
+    """Transformations that change ``ts.time`` must persist (Issue #3870)."""
+
+    n_frames = 98
+
+    @staticmethod
+    def make_universe():
+        return mda.Universe(PSF, DCD, in_memory=True)
+
+    @pytest.fixture()
+    def new_times(self):
+        return np.arange(self.n_frames) * 12.0 + 3.0
+
+    @staticmethod
+    def change_time(new_times):
+        def transform(ts):
+            ts.time = new_times[ts.frame]
+            return ts
+
+        return transform
+
+    def test_transformation_changes_time(self, new_times):
+        u = self.make_universe()
+        u.trajectory.add_transformations(self.change_time(new_times))
+
+        assert_almost_equal([ts.time for ts in u.trajectory], new_times)
+        # random access must give the transformed time as well
+        assert_almost_equal(u.trajectory[4].time, new_times[4])
+
+    def test_copy_keeps_transformed_time(self, new_times):
+        u = self.make_universe()
+        u.trajectory.add_transformations(self.change_time(new_times))
+
+        new = u.trajectory.copy()
+
+        assert_almost_equal([ts.time for ts in new], new_times)
+
+    def test_time_unchanged_without_time_transformation(self):
+        u = self.make_universe()
+        expected = np.arange(len(u.trajectory)) * u.trajectory.dt
+        u.trajectory.add_transformations(lambda ts: ts)
+
+        assert_almost_equal([ts.time for ts in u.trajectory], expected)

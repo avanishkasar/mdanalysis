@@ -412,6 +412,9 @@ class MemoryReader(base.ProtoReader):
                 )
             self.dimensions_array = dimensions
 
+        # times set by transformations; None means time = frame * dt
+        self._frame_times = None
+
         self.ts.frame = -1
         self.ts.time = -1
         self._read_next_timestep()
@@ -469,6 +472,8 @@ class MemoryReader(base.ProtoReader):
             filename=self.filename,
             **self._kwargs,
         )
+        if self._frame_times is not None:
+            new._frame_times = self._frame_times.copy()
         new[self.ts.frame]
 
         for auxname, auxread in self._auxs.items():
@@ -638,7 +643,10 @@ class MemoryReader(base.ProtoReader):
         if self.force_array is not None:
             _replace_forces_array(ts, self.force_array[tuple(basic_slice)])
 
-        ts.time = self.ts.frame * self.dt
+        if self._frame_times is None:
+            ts.time = self.ts.frame * self.dt
+        else:
+            ts.time = self._frame_times[self.ts.frame]
         return ts
 
     def _read_frame(self, i):
@@ -688,9 +696,14 @@ class MemoryReader(base.ProtoReader):
         # In this method, the trajectory is modified all at once and once only.
 
         super(MemoryReader, self).add_transformations(*transformations)
+        frame_times = np.empty(self.n_frames)
         for i, ts in enumerate(self):
             for transform in self.transformations:
                 ts = transform(ts)
+            frame_times[i] = ts.time
+        # keep times changed by transformations: they are otherwise
+        # recomputed from the frame number and dt on every read
+        self._frame_times = frame_times
 
     def _apply_transformations(self, ts):
         """Applies the transformations to the timestep."""
